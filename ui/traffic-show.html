@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>流量捕获</title>
+    <link rel="stylesheet" href="./mdui/css/mdui.min.css">
+    <link href="https://cdn.bootcdn.net/ajax/libs/jBox/1.3.3/jBox.all.min.css" rel="stylesheet">
+    <link href="https://cdn.bootcdn.net/ajax/libs/bulma/0.9.3/css/bulma.min.css" rel="stylesheet">
+    <link href="./jQuery/contextMenu/jquery.contextMenu.css" rel="stylesheet" />
+</head>
+
+<body>
+    <div class="mdui-container-fluid">
+        <div class="mdui-table-fluid">
+            <table class="mdui-table mdui-table-hoverable" id="table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Time</th>
+                        <th>Source</th>
+                        <th>Dest</th>
+                        <th>Protocol</th>
+                        <th>Length</th>
+                        <th>Info</th>
+                    </tr>
+                </thead>
+                <tbody id="tBody">
+                </tbody>
+            </table>
+        </div>
+        <div class="mdui-fab-wrapper" mdui-fab="{trigger: 'click'}">
+            <button class="mdui-fab mdui-ripple mdui-color-red" id="main">
+                <i class="mdui-icon material-icons">add</i>
+                <i class="mdui-icon mdui-fab-opened material-icons">add</i>
+            </button>
+            <div class="mdui-fab-dial">
+                <button class="mdui-fab mdui-fab-mini mdui-ripple mdui-color-cyan js-modal-trigger" id="settings"
+                    data-target="config-page">
+                    <i class="mdui-icon material-icons">settings</i>
+                </button>
+                <button class="mdui-fab mdui-fab-mini mdui-ripple mdui-color-pink" id="start">
+                    <i class="mdui-icon material-icons">power_settings_new</i>
+                </button>
+                <button class="mdui-fab mdui-fab-mini mdui-ripple mdui-color-red" id="stop">
+                    <i class="mdui-icon material-icons">block</i>
+                </button>
+                <button class="mdui-fab mdui-fab-mini mdui-ripple mdui-color-orange" id="save">
+                    <i class="mdui-icon material-icons">file_download</i>
+                </button>
+                <button class="mdui-fab mdui-fab-mini mdui-ripple mdui-color-blue" id="load">
+                    <i class="mdui-icon material-icons">file_upload</i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="mdui-drawer mdui-drawer-close mdui-color-blue" id="drawer">
+        <i class="mdui-icon material-icons">file_upload</i>
+    </div>
+
+    <div class="modal" id="config-page">
+        <div class="modal-background"></div>
+        <div class="modal-card">
+            <header class="modal-card-head">
+                <p class="modal-card-title">流量监听配置</p>
+                <button class="delete modal-close-by-ws" aria-label="close"></button>
+            </header>
+            <section class="modal-card-body">
+                <div>
+                    <div class="field">
+                        <label class="label">请选择需要监听的网卡</label>
+                        <div class="control">
+                            <div class="select">
+                                <select id="selector-net-interface">
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="field">
+                        <label class="label">读取数据包的最大值</label>
+                        <div class="control">
+                            <input class="input" type="text" id="snapshot-length" placeholder="请输入包最大值，一般为65535">
+                        </div>
+                    </div>
+
+                    <div class="field">
+                        <label class="label">数据包超时时间</label>
+                        <div class="control">
+                            <input class="input" type="text" id="snapshot-time" placeholder="请输入超时时间，负数表示立即刷新">
+                        </div>
+                    </div>
+
+                    <div class="field">
+                        <label class="label">设置过滤规则</label>
+                        <div class="control">
+                            <input class="input" type="text" id="snapshot-filter"
+                                placeholder="请输入过滤规则，如：port 80 and tcp">
+                        </div>
+                    </div>
+
+                    <div class="field">
+                        <div class="control">
+                            <label class="checkbox">
+                                <input type="checkbox" checked="true" id="promiscuous">
+                                是否启用混杂模式
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            <footer class="modal-card-foot">
+                <button class="button is-success" id="save-config">保存配置</button>
+                <button class="button is-danger" id="cancel-config">取消</button>
+            </footer>
+        </div>
+    </div>
+</body>
+<script src="./js/default-passive-events.js"></script>
+<script src="./js/network.js"></script>
+<script src="./mdui/js/mdui.js"></script>
+<script src="./jQuery/jQuery.js"></script>
+<script src="https://cdn.bootcdn.net/ajax/libs/jBox/1.3.3/jBox.all.min.js"></script>
+<script src="./jQuery/contextMenu/jquery.contextMenu.js"></script>
+<script src="./jQuery/contextMenu/jquery.ui.position.js"></script>
+<script>
+    var $ = mdui.$;
+    var devicesName = new Array();
+    window.onload = function () {
+        tooTip('#settings', '配置参数');
+        tooTip('#start', '开始捕获');
+        tooTip('#stop', '停止捕获');
+        tooTip('#save', '保存捕获');
+        tooTip('#load', '加载捕获');
+        GetDevicesName();
+        ConnectWS();
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        // Functions to open and close a modal
+        function openModal($el) {
+            $el.classList.add('is-active');
+        }
+
+        function closeModal($el) {
+            $el.classList.remove('is-active');
+        }
+
+        function closeAllModals() {
+            (document.querySelectorAll('.modal') || []).forEach(($modal) => {
+                closeModal($modal);
+            });
+        }
+
+        // Add a click event on buttons to open a specific modal
+        (document.querySelectorAll('.js-modal-trigger') || []).forEach(($trigger) => {
+            const modal = $trigger.dataset.target;
+            const $target = document.getElementById(modal);
+            $trigger.addEventListener('click', () => {
+                openModal($target);
+            });
+        });
+
+        // Add a click event on various child elements to close the parent modal
+        (document.querySelectorAll('.modal-close-by-ws') || []).forEach(($close) => {
+            const $target = $close.closest('.modal');
+
+            $close.addEventListener('click', () => {
+                closeModal($target);
+            });
+        });
+
+        // Add a keyboard event to close all modals
+        document.addEventListener('keydown', (event) => {
+            const e = event || window.event;
+
+            if (e.keyCode === 27) { // Escape key
+                closeAllModals();
+            }
+        });
+    });
+
+    function ShowSource(m) {
+        if (!m.src_ip) {
+            return m.src_mac;
+        }
+        if (!m.src_port) {
+            return m.src_ip;
+        }
+        return m.src_ip + ":" + m.src_port;
+    }
+
+    function ShowDest(m) {
+        if (!m.dst_ip) {
+            return m.dst_mac;
+        }
+        if (!m.dst_port) {
+            return m.dst_ip;
+        }
+        return m.dst_ip + ":" + m.dst_port;
+    }
+
+    function ShowProtocol(m) {
+        return m.protocol ? m.protocol : m.ethernet_type;
+    }
+
+    function ErrorShow(msg) {
+        new jBox('Notice', {
+            content: msg,
+            color: 'red',
+        });
+    }
+
+    function InfoShow(msg) {
+        new jBox('Notice', {
+            content: msg,
+            color: 'blue',
+        });
+    }
+
+    function Msg(msg) {
+        new jBox('Notice', {
+            attributes: {
+                x: 'right',
+                y: 'top'
+            },
+            stack: false,
+            animation: {
+                open: 'tada',
+                close: 'zoomIn'
+            },
+            color: 'blue',
+            title: "流量监控",
+            content: msg,
+        });
+    }
+
+    function tooTip(id, msg) {
+            new jBox('Tooltip', {
+                attach: id,
+                theme: 'TooltipBorderThick',
+                width: 100,
+                position: {
+                    x: 'left',
+                    y: 'center'
+                },
+                outside: 'x',
+                pointer: 'top:15',
+                content: msg,
+                animation: 'move'
+            });
+        }
+
+    function GetDevicesName() {
+        $.ajax({
+            url: "http://127.0.0.1:9666/devicesName",
+            type: "post",
+            success: function (res) {
+                res = JSON.parse(res);
+                if (res.code == 0) {
+                    sel = document.getElementById("selector-net-interface");
+                    res.data.forEach((m, index) => {
+                        desc = m.desc ? " [" + m.desc + "] " : "";
+                        ip = m.ip ? " [" + m.ip + "] " : "";
+                        s = m.name + desc + ip;
+                        sel.options.add(new Option(s, index));
+                        devicesName.push(m.name)
+                    });
+                } else {
+                    new jBox("Notice", {
+                        animation: "flip",
+                        color: "red",
+                        content: res.desc,
+                        delayOnHover: true,
+                        showCountdown: true,
+                    });
+                }
+            },
+            error: function (XMLHttpRequest, textStatus) {
+                console.error(XMLHttpRequest.status, XMLHttpRequest.readyState, textStatus);
+            },
+        });
+    }
+
+    document.getElementById("settings").addEventListener('click', () => {
+        let config = localStorage.getItem('traffic-config');
+        if (!config) {
+            return;
+        }
+        config = JSON.parse(config);
+        jQuery('#selector-net-interface').val(config.netName);
+        jQuery('#snapshot-length').val(config.snapshotLen);
+        jQuery('#snapshot-time').val(config.snapshotTime);
+        jQuery('#promiscuous').is(':checked', config.promiscuous);
+    })
+
+    function ConnectWS() {
+        if (Network.getInstance().socket) {
+            ErrorShow("已经开始监听");
+            return
+        }
+        // 连接服务器
+        Network.getInstance().initNetwork();
+        Msg("连接已建立")
+        if (Network.getInstance().socket) {
+            index = document.getElementById('table').getElementsByTagName('tr').length - 1;
+            Network.getInstance().socket.onmessage = function (e) {
+                m = JSON.parse(e.data);
+                document.getElementById("tBody").innerHTML +=
+                    `<tr>
+                    <td>` + (++index) + `</td>
+                    <td>` + m.time + `</td>
+                    <td>` + ShowSource(m) + `</td>
+                    <td>` + ShowDest(m) + `</td>
+                    <td>` + ShowProtocol(m) + `</td>
+                    <td>` + m.len + `</td>
+                    <td>` + (m.data.length > 20 ? m.data.slice(0, 20) + "..." : m.data) + `</td>
+                </tr>`;
+            }
+        }
+    }
+
+    // 开始捕获
+    document.getElementById("start").addEventListener('click', function () {
+        let config = localStorage.getItem('traffic-config');
+        if (!config) {
+            ErrorShow("请先进行参数配置")
+            return;
+        }
+        config = JSON.parse(config);
+        Msg("开始捕获: " + devicesName[Number(config.netName)]);
+        Network.getInstance().send(JSON.stringify({ "code": 2 ,"conf":{
+            "device_name": devicesName[Number(config.netName)],
+        }}));
+        $('#main').removeClass('mdui-color-red') && $('#main').addClass('mdui-color-green');
+    })
+
+    document.getElementById("stop").addEventListener('click', function () {
+        Network.getInstance().send(JSON.stringify({ "code": 1 }));
+        $('#main').removeClass('mdui-color-green') && $('#main').addClass('mdui-color-red');
+        Msg("流量捕获已停止")
+    })
+
+    document.getElementById("save").addEventListener('click', function () {
+        // InfoShow("正在保存数据");
+    })
+
+    function uploadFile(fileHandle) {
+        var formData = new FormData();
+        formData.append("file", fileHandle);
+        jQuery.ajax({
+            url: 'http://127.0.0.1:9666/openOffline',
+            dataType: "json",
+            type: "post",
+            data: formData,
+            processData: false,
+            contentType: false,
+            error: function (res) {
+                console.log(res);
+                return;
+            },
+            success: function (res) {
+                if (res.code == 0) {
+                    Msg("数据已上传服务器");
+                    index = document.getElementById('table').getElementsByTagName('tr').length - 1;
+                    res.data.forEach(m => {
+                        document.getElementById("tBody").innerHTML +=
+                            `<tr>
+                            <td>` + (++index) + `</td>
+                            <td>` + m.time + `</td>
+                            <td>` + ShowSource(m) + `</td>
+                            <td>` + ShowDest(m) + `</td>
+                            <td>` + m.protocol + `</td>
+                            <td>` + m.len + `</td>
+                            <td>` + (m.data.length > 20 ? m.data.slice(0, 20) + "..." : m.data) + `</td>
+                        </tr>`;
+                    });
+                } else {
+                    ErrorShow(res.desc);
+                }
+                return;
+            }
+        })
+    }
+
+    document.getElementById("load").addEventListener('click', function () {
+        InfoShow("正在加载数据");
+        (function () {
+            let input = document.createElement('input');
+            input.value = '选择文件';
+            input.type = 'file';
+            input.onchange = event => {
+                fileHandle = event.target.files[0];
+                uploadFile(fileHandle);
+            };
+            input.click();
+        })();
+    })
+
+    document.getElementById('save-config').addEventListener('click', () => {
+        let netName = jQuery('#selector-net-interface option:selected').val();
+        let snapshotLen = jQuery('#snapshot-length').val();
+        let snapshotTime = jQuery('#snapshot-time').val();
+        let promiscuous = jQuery('#promiscuous').is(':checked');
+        let config = {
+            netName: netName,
+            snapshotLen: snapshotLen,
+            snapshotTime: snapshotTime,
+            promiscuous: promiscuous
+        }
+        localStorage.setItem('traffic-config', JSON.stringify(config));
+        Msg("配置已保存");
+        document.getElementById('config-page').classList.remove('is-active');
+    })
+
+    document.getElementById('cancel-config').addEventListener('click', () => {
+        ErrorShow("配置未保存");
+        document.getElementById('config-page').classList.remove('is-active');
+    })
+
+    $(() => {
+        jQuery.contextMenu({
+            selector: 'tbody tr',
+            callback: function (key, options) {
+                switch (key) {
+                    case 'clearAll':
+                        $('table tbody').empty();
+                        break;
+                    default:
+                        break;
+                }
+            },
+            items: {
+                "clearAll": { name: "清空数据", icon: "delete" },
+            }
+        });
+    })
+</script>
+<style>
+    html,
+    body {
+        width: 100%;
+        height: auto;
+    }
+
+    body {
+        background-image: linear-gradient(to bottom, #7A88FF, #7AFFAF);
+    }
+</style>
+
+</html>
